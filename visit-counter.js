@@ -3,14 +3,14 @@
  * Gọi Apps Script Web App rồi hiển thị tổng lượt; mọi lỗi đều ẩn badge.
  */
 (function () {
-  // Dán URL "Ứng dụng web" của Apps Script vào đây (xem hướng dẫn trong visit-counter.gs)
+  // Dán URL "Ứng dụng web" của Apps Script vào đây (xem hướng dẫn trong backend.gs)
   var COUNTER_API = 'https://script.google.com/macros/s/AKfycbwhfnMbzfO25rnW8H2yKqHT6cwiYNzi9LL-p3ng-71IWkTsDb_9DEeNiBNrngF_oREPwQ/exec';
   var elCount = document.getElementById('visit-count');
   var elBox = document.getElementById('visit-counter');
 
   if (!COUNTER_API) {
     if (elBox) elBox.style.display = 'none'; // chưa cấu hình thì ẩn badge
-    console.warn('[visit-counter] Chưa đặt COUNTER_API — xem hướng dẫn trong visit-counter.gs');
+    console.warn('[visit-counter] Chưa đặt COUNTER_API — xem hướng dẫn trong backend.gs');
     return;
   }
 
