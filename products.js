@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  var COUNTER_API = "https://script.google.com/macros/s/AKfycbx9lXcSt_3aE-zPynUWlsbmxQiabXhiD2X9S5EU94Db59a__ZmyZsbf-goM6EeveqJ5Ow/exec";
+  var COUNTER_API = "https://script.google.com/macros/s/AKfycbwhfnMbzfO25rnW8H2yKqHT6cwiYNzi9LL-p3ng-71IWkTsDb_9DEeNiBNrngF_oREPwQ/exec";
   var CACHE_KEY = 'steamlab_products_v1';
 
   // Ảnh SVG theo id sản phẩm (giữ trong code theo yêu cầu).
