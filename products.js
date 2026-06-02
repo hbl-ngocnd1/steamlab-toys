@@ -257,23 +257,79 @@
     + '</a>';
   }
 
-  // ---- Phân trang ----
+  // ---- Phân trang + lọc ----
   var PAGE_SIZE = 8;   // số sản phẩm mỗi trang
-  var _items = [];     // danh sách đã lọc/sắp xếp
+  var _all = [];       // toàn bộ SP đang active (chưa áp bộ lọc người dùng)
+  var _items = [];     // danh sách sau khi lọc + sắp xếp (để phân trang)
   var _page = 1;       // trang hiện tại
 
-  // Nhận dữ liệu mới: lọc active + sắp theo order, giữ trang hiện tại nếu còn hợp lệ.
+  // Trạng thái bộ lọc do người dùng chọn (dùng chung cho sidebar + tab nav).
+  var F = { ages: {}, steams: {}, price: null, sort: 'popular' };
+
+  // "4,1k" -> 4100 ; "860" -> 860  (để sắp theo lượt bán)
+  function parseSold(s) {
+    s = String(s == null ? '' : s).trim().toLowerCase();
+    var k = s.indexOf('k') >= 0;
+    var num = parseFloat(s.replace('k', '').replace(',', '.')) || 0;
+    return k ? num * 1000 : num;
+  }
+
+  function inPrice(price, key) {
+    if (key === 'lt100') return price < 100000;
+    if (key === '100-200') return price >= 100000 && price <= 200000;
+    if (key === 'gt200') return price > 200000;
+    return true;
+  }
+
+  function hasKeys(obj) { for (var k in obj) if (obj[k]) return true; return false; }
+
+  function passes(p) {
+    if (hasKeys(F.ages) && !F.ages[p.ageRange]) return false;
+    if (hasKeys(F.steams)) {
+      var cats = String(p.steam || '').split(',').map(function (c) { return c.trim(); });
+      var ok = cats.some(function (c) { return F.steams[c]; });
+      if (!ok) return false;
+    }
+    if (F.price && !inPrice(Number(p.price) || 0, F.price)) return false;
+    return true;
+  }
+
+  function sortFn(a, b) {
+    switch (F.sort) {
+      case 'rating': return (b.rating - a.rating) || (parseSold(b.sold) - parseSold(a.sold));
+      case 'price-asc': return (a.price - b.price);
+      case 'price-desc': return (b.price - a.price);
+      case 'sold-desc': return parseSold(b.sold) - parseSold(a.sold);
+      case 'newest': return (parseInt(String(b.id).replace(/\D/g, ''), 10) || 0) - (parseInt(String(a.id).replace(/\D/g, ''), 10) || 0);
+      default: return (Number(a.order) || 0) - (Number(b.order) || 0); // 'popular' = thứ tự trong Sheet
+    }
+  }
+
+  // Nhận dữ liệu mới từ data layer: lọc active, lưu vào _all, rồi áp bộ lọc hiện tại.
   function renderGrid(list) {
-    _items = (list || []).filter(function (p) { return p && p.active !== false && p.active !== 'FALSE'; })
-      .sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0); });
+    _all = (list || []).filter(function (p) { return p && p.active !== false && p.active !== 'FALSE'; });
+    applyFilters(false);
+  }
+
+  // Áp bộ lọc + sắp xếp -> _items, cập nhật số đếm, vẽ lại lưới.
+  function applyFilters(resetPage) {
+    _items = _all.filter(passes).sort(sortFn);
+    if (resetPage) _page = 1;
     var totalPages = Math.max(1, Math.ceil(_items.length / PAGE_SIZE));
     if (_page > totalPages) _page = totalPages;
+    updateCount();
+    syncControls();
     paint();
   }
 
   function paint() {
     var grid = document.getElementById('product-grid');
     if (!grid) return;
+    if (!_items.length) {
+      grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 56px 16px; color: var(--ink-3); font-size: 15px;">Không tìm thấy sản phẩm phù hợp với bộ lọc.</div>';
+      paintPager(1);
+      return;
+    }
     var totalPages = Math.max(1, Math.ceil(_items.length / PAGE_SIZE));
     if (_page < 1) _page = 1;
     if (_page > totalPages) _page = totalPages;
@@ -337,12 +393,158 @@
     pager.innerHTML = html;
   }
 
+  /* =====================  BỘ LỌC (sidebar + tab nav + sắp xếp)  ===================== */
+  var STEAM_CATS = ['Khoa học', 'Công nghệ', 'Kỹ nghệ', 'Nghệ thuật', 'Toán học'];
+  var PRICE_OPTS = [{ val: 'lt100', label: 'Dưới 100k' }, { val: '100-200', label: '100k – 200k' }, { val: 'gt200', label: 'Trên 200k' }];
+  var _ctl = { age: {}, steam: {}, price: {}, navTabs: {}, navSort: {}, sortSelect: null, countStrong: null };
+  var _dropdown = null;
+  var _filtersReady = false;
+
+  function txt(el) { return (el.textContent || '').replace(/\s+/g, ' ').trim(); }
+  function pick(root, sel, pred) { return [].slice.call((root || document).querySelectorAll(sel)).filter(pred); }
+
+  function ageValue(label) {            // "3 – 5 tuổi" -> "3–5" ; "Trên 12 tuổi" -> ">12"
+    label = label.replace('tuổi', '').trim();
+    if (label.indexOf('Trên') === 0) return '>12';
+    return label.replace(/\s*–\s*/, '–');
+  }
+  function steamCat(label) { return label.replace(/\s*\(.\)\s*$/, '').trim(); }  // "Khoa học (S)" -> "Khoa học"
+
+  var CHECK_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"></path></svg>';
+
+  function setActive(el, on) {
+    if (!el) return;
+    el.style.background = on ? 'var(--surface-2)' : 'transparent';
+    el.style.color = on ? 'var(--brand)' : 'var(--ink)';
+    el.style.fontWeight = on ? '700' : '';
+    var box = el.firstElementChild; // ô checkbox 21x21 có sẵn trong nút
+    if (box) {
+      box.style.background = on ? 'var(--brand)' : 'var(--surface)';
+      box.style.borderColor = on ? 'var(--brand)' : 'var(--line)';
+      box.innerHTML = on ? CHECK_SVG : '';
+    }
+  }
+
+  function toggleFilter(type, val) {
+    if (type === 'age') F.ages[val] = !F.ages[val];
+    else if (type === 'steam') F.steams[val] = !F.steams[val];
+    else if (type === 'price') F.price = (F.price === val ? null : val);
+    applyFilters(true);
+  }
+
+  function updateCount() { if (_ctl.countStrong) _ctl.countStrong.textContent = _items.length; }
+
+  // Đồng bộ trạng thái active lên mọi điều khiển + dropdown đang mở.
+  function syncControls() {
+    var k;
+    for (k in _ctl.age) setActive(_ctl.age[k], !!F.ages[k]);
+    for (k in _ctl.steam) setActive(_ctl.steam[k], !!F.steams[k]);
+    for (k in _ctl.price) setActive(_ctl.price[k], F.price === k);
+
+    var ageOn = hasKeys(F.ages), steamOn = hasKeys(F.steams), priceOn = !!F.price;
+    navTabColor(_ctl.navTabs.age, ageOn);
+    navTabColor(_ctl.navTabs.steam, steamOn);
+    navTabColor(_ctl.navTabs.price, priceOn);
+    navTabColor(_ctl.navSort.sold, F.sort === 'sold-desc');
+    navTabColor(_ctl.navSort.newest, F.sort === 'newest');
+
+    if (_dropdown) _dropdown.innerHTML = buildOptions(_dropdown.getAttribute('data-type'));
+  }
+  function navTabColor(a, on) { if (a) a.style.color = on ? 'var(--brand)' : 'var(--ink-2)'; }
+
+  function buildOptions(type) {
+    var rows = [];
+    if (type === 'age') rows = Object.keys(_ctl.age).map(function (v) { return { val: v, label: _ctl.age[v].getAttribute('data-label'), on: !!F.ages[v] }; });
+    else if (type === 'steam') rows = STEAM_CATS.map(function (c) { return { val: c, label: c, on: !!F.steams[c] }; });
+    else if (type === 'price') rows = PRICE_OPTS.map(function (o) { return { val: o.val, label: o.label, on: F.price === o.val }; });
+    return rows.map(function (r) {
+      return '<div data-val="' + r.val + '" style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:' + (r.on ? '700' : '500') + ';color:' + (r.on ? 'var(--brand)' : 'var(--ink)') + ';background:' + (r.on ? 'var(--surface-2)' : 'transparent') + ';white-space:nowrap;">'
+        + '<span style="width:15px;height:15px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;">' + (r.on ? '✓' : '') + '</span>' + escHtml(r.label) + '</div>';
+    }).join('');
+  }
+
+  function closeDropdown() { if (_dropdown && _dropdown.parentNode) _dropdown.parentNode.removeChild(_dropdown); _dropdown = null; }
+
+  function openDropdown(tab, type) {
+    var same = _dropdown && _dropdown.getAttribute('data-type') === type;
+    closeDropdown();
+    if (same) return; // bấm lại tab đang mở -> đóng
+    var panel = document.createElement('div');
+    panel.setAttribute('data-type', type);
+    var r = tab.getBoundingClientRect();
+    panel.style.cssText = 'position:absolute;z-index:80;top:' + (r.bottom + window.pageYOffset + 8) + 'px;left:' + (r.left + window.pageXOffset) + 'px;min-width:190px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;box-shadow:var(--shadow-hover);padding:7px;';
+    panel.innerHTML = buildOptions(type);
+    panel.addEventListener('click', function (e) {
+      var it = e.target.closest ? e.target.closest('[data-val]') : null;
+      if (!it) return;
+      toggleFilter(type, it.getAttribute('data-val'));
+    });
+    document.body.appendChild(panel);
+    _dropdown = panel;
+  }
+
+  function setupFilters() {
+    if (_filtersReady) return;
+
+    // --- sidebar: định vị nhóm theo tiêu đề rồi gắn nút ---
+    pick(document, 'div', function (d) { return ['Độ tuổi', 'Kỹ năng STEAM', 'Mức giá'].indexOf(txt(d)) >= 0 && d.children.length === 0; })
+      .forEach(function (header) {
+        var group = header.parentNode, head = txt(header);
+        pick(group, 'button', function () { return true; }).forEach(function (btn) {
+          var label = txt(btn);
+          if (head === 'Độ tuổi') { var v = ageValue(label); btn.setAttribute('data-label', label); _ctl.age[v] = btn; btn.addEventListener('click', function () { toggleFilter('age', v); }); }
+          else if (head === 'Kỹ năng STEAM') { var c = steamCat(label); _ctl.steam[c] = btn; btn.addEventListener('click', function () { toggleFilter('steam', c); }); }
+          else { var pk = label.indexOf('Dưới') === 0 ? 'lt100' : (label.indexOf('Trên') === 0 ? 'gt200' : '100-200'); _ctl.price[pk] = btn; btn.addEventListener('click', function () { toggleFilter('price', pk); }); }
+        });
+      });
+
+    // --- số đếm "Hiển thị N sản phẩm" ---
+    pick(document, 'span', function (s) { return /Hiển thị/.test(txt(s)) && /sản phẩm/.test(txt(s)); })
+      .forEach(function (s) { var st = s.querySelector('strong'); if (st) _ctl.countStrong = st; });
+
+    // --- dropdown sắp xếp ---
+    var sel = document.querySelector('select');
+    if (sel && /popular|rating|price/.test(sel.innerHTML)) {
+      _ctl.sortSelect = sel;
+      sel.addEventListener('change', function () { F.sort = sel.value; applyFilters(true); });
+    }
+
+    // --- nav: tab xổ (độ tuổi / STEAM / giá) + link nhanh (bán chạy / mới về) ---
+    var nav = document.querySelector('nav');
+    if (nav) {
+      pick(nav, 'a', function () { return true; }).forEach(function (a) {
+        var t = txt(a);
+        if (t.indexOf('Theo độ tuổi') === 0) bindTab(a, 'age', 'age');
+        else if (t.indexOf('Theo kỹ năng') === 0) bindTab(a, 'steam', 'steam');
+        else if (t.indexOf('Theo mức giá') === 0) bindTab(a, 'price', 'price');
+        else if (t === 'Bán chạy') { _ctl.navSort.sold = a; a.addEventListener('click', function (e) { e.preventDefault(); F.sort = 'sold-desc'; applyFilters(true); }); }
+        else if (t === 'Hàng mới về') { _ctl.navSort.newest = a; a.addEventListener('click', function (e) { e.preventDefault(); F.sort = 'newest'; applyFilters(true); }); }
+      });
+    }
+    function bindTab(a, key, type) {
+      _ctl.navTabs[key] = a;
+      a.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); openDropdown(a, type); });
+    }
+
+    // đóng dropdown khi bấm ra ngoài
+    document.addEventListener('click', function (e) {
+      if (!_dropdown) return;
+      if (_dropdown.contains(e.target)) return;
+      var tabs = [_ctl.navTabs.age, _ctl.navTabs.steam, _ctl.navTabs.price];
+      for (var i = 0; i < tabs.length; i++) if (tabs[i] && tabs[i].contains(e.target)) return;
+      closeDropdown();
+    });
+
+    _filtersReady = true;
+  }
+
   function readCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY)); } catch (e) { return null; } }
   function writeCache(products) {
     try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), products: products })); } catch (e) {}
   }
 
   function init() {
+    try { setupFilters(); } catch (e) { /* lỗi wiring không được làm vỡ render SP */ }
     var cached = readCache();
     var initial = (cached && cached.products && cached.products.length) ? cached.products : DEFAULT_PRODUCTS;
     renderGrid(initial); // paint ngay (stale)
