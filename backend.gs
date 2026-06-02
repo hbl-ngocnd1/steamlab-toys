@@ -29,9 +29,8 @@ var LOG_SHEET = 'log';
 var PRODUCTS_SHEET = 'products';
 var PRODUCTS_CACHE_KEY = 'products_json';
 var PRODUCTS_CACHE_TTL = 300; // giây — cache phía server để khỏi đọc Sheet mỗi request
-var PRODUCTS_BACKUP_KEY = 'products_json_bak'; // bản backup TTL dài để serve-stale khi bị tải/throttle
+var PRODUCTS_BACKUP_KEY = 'products_json_bak'; // bản backup TTL dài để serve-stale khi cache miss + tải cao
 var PRODUCTS_BACKUP_TTL = 21600; // giây (6h)
-var PRODUCTS_MAX_PER_MIN = 300; // P2: trần số request products mỗi phút (toàn cục)
 
 function doGet(e) { return route_(e); }
 function doPost(e) { return route_(e); }
@@ -87,22 +86,17 @@ function getProducts_() {
   try {
     var cache = CacheService.getScriptCache();
 
-    // P2 — trần số request/phút (toàn cục), đếm MỌI request để chặn flood/scrape.
-    // Vượt ngưỡng → trả lỗi ngắn (shed băng thông); client tự fallback localStorage
-    // / DEFAULT_PRODUCTS nên UX không vỡ.
-    var bucket = 'rlp_' + Math.floor(Date.now() / 1000 / 60);
-    var n = Number(cache.get(bucket)) || 0;
-    if (n >= PRODUCTS_MAX_PER_MIN) {
-      return json_({ ok: false, error: 'throttled', throttled: true });
-    }
-    try { cache.put(bucket, String(n + 1), 65); } catch (e) {}
-
     // Cache nóng → trả ngay (đường đi rẻ nhất).
     var hit = cache.get(PRODUCTS_CACHE_KEY);
     if (hit) return out_(hit);
 
-    // P1 — single-flight: chỉ 1 request dựng lại cache; số còn lại trả backup
-    // (không cùng đọc Sheet → chống thundering herd).
+    // Bảo vệ chính — single-flight: khi cache miss, chỉ 1 request dựng lại cache;
+    // số còn lại trả backup thay vì cùng đọc Sheet (chống thundering herd).
+    // LockService.tryLock là atomic nên lớp này đáng tin: tài nguyên đắt nhất
+    // (đọc Sheet) chỉ chạy ~1 lần mỗi chu kỳ cache, bất kể số request đồng thời.
+    // (Không đặt cap số request/phút: CacheService không có atomic increment,
+    //  dưới burst sẽ lost-update → cap không tin cậy; muốn chặn bot/băng thông
+    //  thì dùng attestation kiểu Cloudflare Turnstile, verify phía server.)
     var lock = LockService.getScriptLock();
     var locked = false;
     try { locked = lock.tryLock(8000); } catch (e) {}
