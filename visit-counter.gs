@@ -122,6 +122,19 @@ function clearProductsCache() {
   CacheService.getScriptCache().remove(PRODUCTS_CACHE_KEY);
 }
 
+/**
+ * Trigger đơn giản: tự xoá cache khi sheet "products" bị chỉnh sửa, để dữ liệu
+ * mới hiện ra gần như tức thì (không phải chờ hết TTL 300s).
+ * Chạy tự động sau khi lưu code — KHÔNG cần deploy lại.
+ */
+function onEdit(e) {
+  try {
+    if (e && e.range && e.range.getSheet().getName() === PRODUCTS_SHEET) {
+      clearProductsCache();
+    }
+  } catch (err) { /* bỏ qua */ }
+}
+
 /* ----------------------- Seed dữ liệu ban đầu ----------------------- */
 /**
  * Tạo sheet "products" (nếu chưa có) và ghi header + 12 sản phẩm ban đầu.
