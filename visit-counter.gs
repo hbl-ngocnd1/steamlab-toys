@@ -63,7 +63,7 @@ function handleHit_(e) {
     }
     var page = (e && e.parameter && e.parameter.page) ? e.parameter.page : '';
     var ref = (e && e.parameter && e.parameter.ref) ? e.parameter.ref : '';
-    log.appendRow([new Date(), page, ref]);
+    log.appendRow([new Date(), sanitizeCell_(page), sanitizeCell_(ref)]);
 
     return json_({ ok: true, total: total });
   } catch (err) {
@@ -211,6 +211,16 @@ function backfillImages() {
 }
 
 /* ----------------------- Tiện ích ----------------------- */
+/**
+ * Chống CSV/formula injection khi ghi giá trị do người dùng kiểm soát (page/ref)
+ * vào Sheet: thêm dấu ' trước các ký tự khởi đầu công thức, và giới hạn độ dài.
+ */
+function sanitizeCell_(v) {
+  var s = String(v == null ? '' : v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return s.slice(0, 500);
+}
+
 function json_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))

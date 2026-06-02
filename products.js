@@ -223,6 +223,22 @@
   function escAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
   function escHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+  // Ảnh từ Sheet: chỉ cho phép data:image/ hoặc https://, rồi mã hoá các ký tự có thể
+  // thoát khỏi url('...') / thuộc tính style / thẻ HTML (chống XSS lưu trữ).
+  function safeImg(s) {
+    s = String(s == null ? '' : s).trim();
+    if (!/^(data:image\/|https:\/\/)/i.test(s)) return '';
+    return s.replace(/['"<>\\\s]/g, function (ch) { return '%' + ch.charCodeAt(0).toString(16); });
+  }
+
+  // Link sản phẩm: chỉ chấp nhận http(s), đường dẫn tương đối / *.html / anchor;
+  // chặn javascript:, data:, vbscript:… (chống XSS qua href).
+  function safeUrl(s) {
+    s = String(s == null ? '' : s).trim();
+    if (/^(https?:\/\/|\/|\.{1,2}\/|[\w.\-]+\.html(?:[?#].*)?$|#|mailto:|tel:)/i.test(s)) return s;
+    return 'guide.html';
+  }
+
   function steamHtml(steam) {
     return String(steam || '').split(',').map(function (c) { return c.trim(); }).filter(Boolean).map(function (cat) {
       var ic = STEAM_ICONS[cat];
@@ -232,9 +248,9 @@
   }
 
   function renderCard(p) {
-    var img = p.image || PRODUCT_SVG[p.id] || PLACEHOLDER;
+    var img = safeImg(p.image) || PRODUCT_SVG[p.id] || PLACEHOLDER;
     var disc = discPct(p.price, p.originalPrice);
-    return '<a href="' + escAttr(p.link || 'guide.html') + '" class="card-hover" style="display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-card); overflow: hidden;">'
+    return '<a href="' + escAttr(safeUrl(p.link)) + '" class="card-hover" style="display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-card); overflow: hidden;">'
       + '<div style="position: relative; aspect-ratio: 1 / 1; background: var(--surface-2); flex-shrink: 0;">'
         + '<div role="img" aria-label="' + escAttr('Ảnh — ' + p.name) + '" style="position: absolute; inset: 0px; font-size: 11px; padding: 8px;background-image:url(\'' + img + '\');background-size:cover;background-position:center;background-repeat:no-repeat"></div>'
         + '<span style="position: absolute; top: 10px; left: 10px; background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(6px); color: var(--brand); font-weight: 700; font-size: 11.5px; padding: 4px 9px; border-radius: 999px; box-shadow: var(--shadow-card); white-space: nowrap;">👶 ' + escHtml(p.ageRange) + ' tuổi</span>'
