@@ -1,12 +1,13 @@
 /**
  * STEAMLab — Tải & render danh sách sản phẩm động từ Google Sheet.
  * =============================================================
- * - Dữ liệu (text) lấy từ Google Apps Script: <COUNTER_API>?action=products
- * - Ảnh SVG giữ trong code (PRODUCT_SVG), map theo id sản phẩm.
+ * - Dữ liệu (text + ảnh) lấy từ Google Apps Script: <COUNTER_API>?action=products
+ * - Ảnh SVG lưu ở cột "image" trong Google Sheet (nguồn chính). PRODUCT_SVG bên
+ *   dưới chỉ là bản fallback cho 12 SP gốc khi offline / chưa có cache.
  * - Cache kiểu stale-while-revalidate qua localStorage: hiện ngay dữ liệu cũ
  *   (hoặc DEFAULT_PRODUCTS) rồi fetch nền để cập nhật.
- * - Thêm sản phẩm mới: thêm 1 dòng trong Sheet; muốn có ảnh riêng thì thêm
- *   PRODUCT_SVG['<id>'] = '<data-uri>' bên dưới, nếu thiếu sẽ dùng ảnh placeholder.
+ * - Thêm sản phẩm mới: thêm 1 dòng trong Sheet và dán data-URI SVG vào cột
+ *   "image"; nếu để trống sẽ dùng ảnh placeholder.
  *
  * File này được sinh tự động từ dữ liệu HTML tĩnh ban đầu (12 sản phẩm).
  */
@@ -231,7 +232,7 @@
   }
 
   function renderCard(p) {
-    var img = PRODUCT_SVG[p.id] || PLACEHOLDER;
+    var img = p.image || PRODUCT_SVG[p.id] || PLACEHOLDER;
     var disc = discPct(p.price, p.originalPrice);
     return '<a href="' + escAttr(p.link || 'guide.html') + '" class="card-hover" style="display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-card); overflow: hidden;">'
       + '<div style="position: relative; aspect-ratio: 1 / 1; background: var(--surface-2); flex-shrink: 0;">'
