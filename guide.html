@@ -2,6 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>STEAMLab — Hướng dẫn chơi đồ chơi STEAM (Desktop)</title>
 <style>
@@ -383,35 +384,6 @@
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
   <span>Lượt truy cập: <strong id="visit-count" style="color: var(--brand);">…</strong></span>
 </div>
-<script>
-(function () {
-  // Dán URL "Ứng dụng web" của Apps Script vào đây (xem hướng dẫn trong visit-counter.gs)
-  var COUNTER_API = 'https://script.google.com/macros/s/AKfycbwhfnMbzfO25rnW8H2yKqHT6cwiYNzi9LL-p3ng-71IWkTsDb_9DEeNiBNrngF_oREPwQ/exec';
-  var elCount = document.getElementById('visit-count');
-  var elBox = document.getElementById('visit-counter');
-
-  if (!COUNTER_API) {
-    elBox.style.display = 'none'; // chưa cấu hình thì ẩn badge
-    console.warn('[visit-counter] Chưa đặt COUNTER_API — xem hướng dẫn trong visit-counter.gs');
-    return;
-  }
-
-  var url = COUNTER_API
-    + (COUNTER_API.indexOf('?') === -1 ? '?' : '&')
-    + 'page=' + encodeURIComponent(location.pathname)
-    + '&ref=' + encodeURIComponent(document.referrer || '');
-
-  fetch(url, { method: 'GET' })
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      if (data && data.ok) {
-        elCount.textContent = Number(data.total).toLocaleString('vi-VN');
-      } else {
-        elBox.style.display = 'none';
-      }
-    })
-    .catch(function () { elBox.style.display = 'none'; });
-})();
-</script>
+<script src="visit-counter.js"></script>
 </body>
 </html>

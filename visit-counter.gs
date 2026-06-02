@@ -67,7 +67,8 @@ function handleHit_(e) {
 
     return json_({ ok: true, total: total });
   } catch (err) {
-    return json_({ ok: false, error: String(err) });
+    console.error(err);                       // chi tiết chỉ ghi log phía server
+    return json_({ ok: false, error: 'internal_error' });
   } finally {
     lock.releaseLock();
   }
@@ -112,7 +113,8 @@ function getProducts_() {
     try { cache.put(PRODUCTS_CACHE_KEY, payload, PRODUCTS_CACHE_TTL); } catch (e) {}
     return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    return json_({ ok: false, error: String(err) });
+    console.error(err);                       // chi tiết chỉ ghi log phía server
+    return json_({ ok: false, error: 'internal_error' });
   }
 }
 
