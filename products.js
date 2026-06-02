@@ -257,12 +257,84 @@
     + '</a>';
   }
 
+  // ---- Phân trang ----
+  var PAGE_SIZE = 8;   // số sản phẩm mỗi trang
+  var _items = [];     // danh sách đã lọc/sắp xếp
+  var _page = 1;       // trang hiện tại
+
+  // Nhận dữ liệu mới: lọc active + sắp theo order, giữ trang hiện tại nếu còn hợp lệ.
   function renderGrid(list) {
+    _items = (list || []).filter(function (p) { return p && p.active !== false && p.active !== 'FALSE'; })
+      .sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0); });
+    var totalPages = Math.max(1, Math.ceil(_items.length / PAGE_SIZE));
+    if (_page > totalPages) _page = totalPages;
+    paint();
+  }
+
+  function paint() {
     var grid = document.getElementById('product-grid');
     if (!grid) return;
-    var items = (list || []).filter(function (p) { return p && p.active !== false && p.active !== 'FALSE'; })
-      .sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0); });
-    grid.innerHTML = items.map(renderCard).join('');
+    var totalPages = Math.max(1, Math.ceil(_items.length / PAGE_SIZE));
+    if (_page < 1) _page = 1;
+    if (_page > totalPages) _page = totalPages;
+    var start = (_page - 1) * PAGE_SIZE;
+    grid.innerHTML = _items.slice(start, start + PAGE_SIZE).map(renderCard).join('');
+    paintPager(totalPages);
+  }
+
+  // Dãy số trang gọn: 1 … (p-1) p (p+1) … N
+  function pageList(total, cur) {
+    var out = [], i;
+    if (total <= 7) { for (i = 1; i <= total; i++) out.push(i); return out; }
+    out.push(1);
+    var lo = Math.max(2, cur - 1), hi = Math.min(total - 1, cur + 1);
+    if (lo > 2) out.push('…');
+    for (i = lo; i <= hi; i++) out.push(i);
+    if (hi < total - 1) out.push('…');
+    out.push(total);
+    return out;
+  }
+
+  function pagerBtn(label, page, opts) {
+    opts = opts || {};
+    var base = 'min-width: 38px; height: 38px; padding: 0 11px; border-radius: 10px; font-family: var(--font-body); font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink);';
+    if (opts.active) base += 'background: var(--brand); border-color: var(--brand); color: #fff;';
+    if (opts.disabled) base += 'opacity: .45; cursor: not-allowed;';
+    if (opts.ellipsis) return '<span style="min-width: 22px; text-align: center; color: var(--ink-3);">…</span>';
+    return '<button type="button" data-page="' + page + '"' + (opts.disabled ? ' disabled' : '') + ' style="' + base + '">' + label + '</button>';
+  }
+
+  function paintPager(totalPages) {
+    var grid = document.getElementById('product-grid');
+    if (!grid) return;
+    var pager = document.getElementById('product-pager');
+    if (!pager) {
+      pager = document.createElement('div');
+      pager.id = 'product-pager';
+      pager.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 7px; flex-wrap: wrap; margin: 32px 0 8px;';
+      grid.parentNode.insertBefore(pager, grid.nextSibling);
+      pager.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('button[data-page]') : null;
+        if (!b || b.disabled) return;
+        var v = b.getAttribute('data-page');
+        var tp = Math.max(1, Math.ceil(_items.length / PAGE_SIZE));
+        if (v === 'prev') _page--;
+        else if (v === 'next') _page++;
+        else _page = Number(v);
+        paint();
+        // cuộn lên đầu lưới cho dễ xem
+        var top = grid.getBoundingClientRect().top + window.pageYOffset - 90;
+        window.scrollTo({ top: top, behavior: 'smooth' });
+      });
+    }
+    if (totalPages <= 1) { pager.innerHTML = ''; return; }
+    var html = pagerBtn('‹', 'prev', { disabled: _page === 1 });
+    pageList(totalPages, _page).forEach(function (it) {
+      if (it === '…') html += pagerBtn('', 0, { ellipsis: true });
+      else html += pagerBtn(String(it), it, { active: it === _page });
+    });
+    html += pagerBtn('›', 'next', { disabled: _page === totalPages });
+    pager.innerHTML = html;
   }
 
   function readCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY)); } catch (e) { return null; } }
