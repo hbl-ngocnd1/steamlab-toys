@@ -29,6 +29,9 @@ var LOG_SHEET = 'log';
 var PRODUCTS_SHEET = 'products';
 var PRODUCTS_CACHE_KEY = 'products_json';
 var PRODUCTS_CACHE_TTL = 300; // giây — cache phía server để khỏi đọc Sheet mỗi request
+var PRODUCTS_BACKUP_KEY = 'products_json_bak'; // bản backup TTL dài để serve-stale khi bị tải/throttle
+var PRODUCTS_BACKUP_TTL = 21600; // giây (6h)
+var PRODUCTS_MAX_PER_MIN = 300; // P2: trần số request products mỗi phút (toàn cục)
 
 function doGet(e) { return route_(e); }
 function doPost(e) { return route_(e); }
@@ -75,43 +78,79 @@ function handleHit_(e) {
 }
 
 /* ----------------------- Dữ liệu sản phẩm ----------------------- */
+// Trả chuỗi JSON sẵn có dưới dạng response (dùng lại cho cache/backup).
+function out_(jsonStr) {
+  return ContentService.createTextOutput(jsonStr).setMimeType(ContentService.MimeType.JSON);
+}
+
 function getProducts_() {
   try {
     var cache = CacheService.getScriptCache();
+
+    // P2 — trần số request/phút (toàn cục), đếm MỌI request để chặn flood/scrape.
+    // Vượt ngưỡng → trả lỗi ngắn (shed băng thông); client tự fallback localStorage
+    // / DEFAULT_PRODUCTS nên UX không vỡ.
+    var bucket = 'rlp_' + Math.floor(Date.now() / 1000 / 60);
+    var n = Number(cache.get(bucket)) || 0;
+    if (n >= PRODUCTS_MAX_PER_MIN) {
+      return json_({ ok: false, error: 'throttled', throttled: true });
+    }
+    try { cache.put(bucket, String(n + 1), 65); } catch (e) {}
+
+    // Cache nóng → trả ngay (đường đi rẻ nhất).
     var hit = cache.get(PRODUCTS_CACHE_KEY);
-    if (hit) {
-      return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
+    if (hit) return out_(hit);
+
+    // P1 — single-flight: chỉ 1 request dựng lại cache; số còn lại trả backup
+    // (không cùng đọc Sheet → chống thundering herd).
+    var lock = LockService.getScriptLock();
+    var locked = false;
+    try { locked = lock.tryLock(8000); } catch (e) {}
+    if (!locked) {
+      var bak = cache.get(PRODUCTS_BACKUP_KEY);
+      if (bak) return out_(bak);
+      // không có backup: chờ ngắn rồi thử lại lock để lấy bản vừa dựng.
+      try { locked = lock.tryLock(8000); } catch (e) {}
     }
 
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sh = ss.getSheetByName(PRODUCTS_SHEET);
-    if (!sh) return json_({ ok: false, error: 'Chưa có sheet "products". Hãy chạy seedProducts().' });
+    try {
+      // Double-check: request giữ lock trước đó có thể đã dựng xong cache.
+      hit = cache.get(PRODUCTS_CACHE_KEY);
+      if (hit) return out_(hit);
 
-    var values = sh.getDataRange().getValues();
-    if (values.length < 2) return json_({ ok: true, products: [] });
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sh = ss.getSheetByName(PRODUCTS_SHEET);
+      if (!sh) return json_({ ok: false, error: 'Chưa có sheet "products". Hãy chạy seedProducts().' });
 
-    var header = values[0].map(function (h) { return String(h).trim(); });
-    var products = [];
-    for (var r = 1; r < values.length; r++) {
-      var row = values[r];
-      if (!row[0] && !row[1]) continue; // bỏ hàng trống
-      var obj = {};
-      for (var c = 0; c < header.length; c++) {
-        if (header[c]) obj[header[c]] = row[c];
+      var values = sh.getDataRange().getValues();
+      if (values.length < 2) return json_({ ok: true, products: [] });
+
+      var header = values[0].map(function (h) { return String(h).trim(); });
+      var products = [];
+      for (var r = 1; r < values.length; r++) {
+        var row = values[r];
+        if (!row[0] && !row[1]) continue; // bỏ hàng trống
+        var obj = {};
+        for (var c = 0; c < header.length; c++) {
+          if (header[c]) obj[header[c]] = row[c];
+        }
+        // chuẩn hóa kiểu dữ liệu
+        obj.price = Number(obj.price) || 0;
+        obj.originalPrice = Number(obj.originalPrice) || 0;
+        obj.rating = Number(obj.rating) || 0;
+        obj.order = Number(obj.order) || 0;
+        obj.active = (obj.active === true || String(obj.active).toUpperCase() === 'TRUE');
+        products.push(obj);
       }
-      // chuẩn hóa kiểu dữ liệu
-      obj.price = Number(obj.price) || 0;
-      obj.originalPrice = Number(obj.originalPrice) || 0;
-      obj.rating = Number(obj.rating) || 0;
-      obj.order = Number(obj.order) || 0;
-      obj.active = (obj.active === true || String(obj.active).toUpperCase() === 'TRUE');
-      products.push(obj);
-    }
 
-    var payload = JSON.stringify({ ok: true, products: products, cachedAt: new Date().toISOString() });
-    // cache.put có giới hạn ~100KB/key — nếu payload quá lớn thì bỏ qua cache, vẫn trả data.
-    try { cache.put(PRODUCTS_CACHE_KEY, payload, PRODUCTS_CACHE_TTL); } catch (e) {}
-    return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
+      var payload = JSON.stringify({ ok: true, products: products, cachedAt: new Date().toISOString() });
+      // cache.put có giới hạn ~100KB/key — nếu payload quá lớn thì bỏ qua cache, vẫn trả data.
+      try { cache.put(PRODUCTS_CACHE_KEY, payload, PRODUCTS_CACHE_TTL); } catch (e) {}
+      try { cache.put(PRODUCTS_BACKUP_KEY, payload, PRODUCTS_BACKUP_TTL); } catch (e) {}
+      return out_(payload);
+    } finally {
+      if (locked) { try { lock.releaseLock(); } catch (e) {} }
+    }
   } catch (err) {
     console.error(err);                       // chi tiết chỉ ghi log phía server
     return json_({ ok: false, error: 'internal_error' });
